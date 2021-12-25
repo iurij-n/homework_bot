@@ -1,83 +1,144 @@
-import requests
+import os
 import time
-from telegram import Bot, ReplyKeyboardMarkup
-from telegram.ext import CommandHandler, Filters, MessageHandler, Updater
+import logging
+import sys
+
+
+import requests
+from dotenv import load_dotenv
+from telegram import Bot
 
 load_dotenv()
 
+PRACTICUM_TOKEN = os.getenv('PRACTICUM_TOKEN')
+TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
+TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 
-PRACTICUM_TOKEN = 'AQAAAAASWs4aAAYckVnFE8x9YEaii-cSMWqvmBo'
-TELEGRAM_TOKEN = '5012792175:AAEeMJx4s2t3WQbMcfaX82DQ9qF8SzR23-4'
-TELEGRAM_CHAT_ID = 537063134
-
-RETRY_TIME = 600
 ENDPOINT = 'https://practicum.yandex.ru/api/user_api/homework_statuses/'
 HEADERS = {'Authorization': f'OAuth {PRACTICUM_TOKEN}'}
-
-
+RETRY_TIME = 600
 HOMEWORK_STATUSES = {
     'approved': 'Работа проверена: ревьюеру всё понравилось. Ура!',
     'reviewing': 'Работа взята на проверку ревьюером.',
     'rejected': 'Работа проверена: у ревьюера есть замечания.'
 }
 
-
-bot = Bot(token=TELEGRAM_TOKEN)
-updater = Updater(token=secret_token)
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+handler = logging.StreamHandler(sys.stdout)
+logger.addHandler(handler)
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
 
 
 def send_message(bot, message):
-    ...
+    """Отправляет сообщение в Telegram чат."""
+    try:
+        bot.send_message(TELEGRAM_CHAT_ID, message)
+        logger.info(f'Бот отправил сообщение: {message}')
+    except Exception as error:
+        logger.error(f'Бот не смог отправить сообщение: {error}')
 
 
 def get_api_answer(current_timestamp):
+    """Запрос к API-сервиса проверки домашней работы."""
     timestamp = current_timestamp or int(time.time())
+    logger.debug(f'Время запроса {timestamp}')
     params = {'from_date': timestamp}
-    homework = requests.get(ENDPOINT, headers=HEADERS, params=params)
-    return homework.json()
+    try:
+        homework = requests.get(ENDPOINT, headers=HEADERS, params=params)
+        logger.info('Выполнен запрос к API')
+        return homework.json()
+    except Exception as error:
+        logger.error(f'Сбой в работе программы: {error}. '
+                     f'Код ответа API: {homework.status_code}')
 
 
-def check_response(response):
+def check_response(response) -> list:
+    """Возвращает список домашних работ."""
     if isinstance(response, dict):
-        return response.get('homeworks')
+        logger.debug('Получен список домашних работ')
+        try:
+            hw_list = response.get('homeworks')
+            logger.debug('Список домашних работ извлечен успешно')
+            return hw_list
+        except Exception:
+            logger.error('Не удалось извлечь список домашних работ')
+    else:
+        logger.error(f'Тип данных ответа API {type(response)}. '
+                     'Должен быть словарь.')
+        return []
 
 
 def parse_status(homework):
+    """Статус проверки домашней работы."""
     homework_name = homework.get('lesson_name')
+    if homework_name is None:
+        logger.error('Не удалось извлечь название домашней работы')
+        homework_name = 'Неизвестная домашняя работа'
     homework_status = homework.get('status')
-    verdict = HOMEWORK_STATUSES.get(homework_status)
-    return f'Изменился статус проверки работы "{homework_name}". {verdict}'
+    if homework_status is None:
+        logger.error('Неизвесный статус домашней работы')
+    else:
+        verdict = HOMEWORK_STATUSES.get(homework_status)
+        return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
 
 def check_tokens():
-    ...
+    """Проверка доступности переменных окружения."""
+    if PRACTICUM_TOKEN is None:
+        logger.critical('Отсутствует обязательная переменная окружения: '
+                        'PRACTICUM_TOKEN Программа принудительно '
+                        'остановлена.')
+    if TELEGRAM_TOKEN is None:
+        logger.critical('Отсутствует обязательная переменная окружения: '
+                        'TELEGRAM_TOKEN Программа принудительно '
+                        'остановлена.')
+    if TELEGRAM_CHAT_ID is None:
+        logger.critical('Отсутствует обязательная переменная окружения: '
+                        'TELEGRAM_CHAT_ID Программа принудительно '
+                        'остановлена.')
+    return ((PRACTICUM_TOKEN is not None)
+            and (TELEGRAM_TOKEN is not None)
+            and (TELEGRAM_CHAT_ID is not None)
+            and (ENDPOINT is not None)
+            )
 
 
 def main():
     """Основная логика работы бота."""
-
-    ...
-
-    bot = telegram.Bot(token=TELEGRAM_TOKEN)
+    bot = Bot(token=TELEGRAM_TOKEN)
     current_timestamp = int(time.time())
-
-    ...
-
-    while True:
+    while check_tokens():
         try:
-            response = ...
+            try:
+                response = get_api_answer(current_timestamp)
+            except Exception:
+                logger.error('Не удалось получить ответ API')
+                send_message(bot, 'Не удалось получить ответ API')
+            logger.debug(f'Ответ API {response}')
+            try:
+                homework = check_response(response)
+            except Exception:
+                logger.error('Не удалось распознать ответ API')
+                send_message(bot, 'Не удалось распознать ответ API')
+            logger.debug(f'Список домашних работ {homework}')
+            if len(homework) != 0:
+                send_message(bot, parse_status(homework[0]))
+                logger.debug('Получен новый статус')
+            else:
+                logger.debug('Новых статусов нет')
 
-            ...
-
-            current_timestamp = ...
+            current_timestamp = int(time.time())
             time.sleep(RETRY_TIME)
 
         except Exception as error:
             message = f'Сбой в работе программы: {error}'
-            ...
+            send_message(bot, message)
             time.sleep(RETRY_TIME)
-        else:
-            ...
+    else:
+        message = 'Переменные окружения не доступны'
+        send_message(bot, message)
 
 
 if __name__ == '__main__':

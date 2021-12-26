@@ -43,15 +43,22 @@ def send_message(bot, message):
 def get_api_answer(current_timestamp):
     """Запрос к API-сервиса проверки домашней работы."""
     timestamp = current_timestamp or int(time.time())
-    logger.debug(f'Время запроса {timestamp}')
     params = {'from_date': timestamp}
     try:
         homework = requests.get(ENDPOINT, headers=HEADERS, params=params)
-        logger.info('Выполнен запрос к API')
-        return homework.json()
-    except Exception as error:
-        logger.error(f'Сбой в работе программы: {error}. '
-                     f'Код ответа API: {homework.status_code}')
+        logger.debug(f'Код ответа API: {homework.status_code}')
+    #logger.debug(f'Тип кода ответа API: {type(homework.status_code)}')
+        if homework.status_code != 200:
+            logger.error(f'Сбой в работе программы. '
+                        f'Код ответа API: {homework.status_code}')
+            return False 
+        else:
+            logger.debug(f'get_api_answer вернула {homework.json()}')
+            return homework.json()
+    except Exception:
+        logger.error(f'Сбой в работе программы. '
+                        f'Код ответа API: {homework.status_code}')
+        return False
 
 
 def check_response(response) -> list:
@@ -76,6 +83,7 @@ def parse_status(homework):
     if homework_name is None:
         logger.error('Не удалось извлечь название домашней работы')
         homework_name = 'Неизвестная домашняя работа'
+    
     homework_status = homework.get('status')
     if homework_status is None:
         logger.error('Неизвесный статус домашней работы')
@@ -98,11 +106,7 @@ def check_tokens():
         logger.critical('Отсутствует обязательная переменная окружения: '
                         'TELEGRAM_CHAT_ID Программа принудительно '
                         'остановлена.')
-    return ((PRACTICUM_TOKEN is not None)
-            and (TELEGRAM_TOKEN is not None)
-            and (TELEGRAM_CHAT_ID is not None)
-            and (ENDPOINT is not None)
-            )
+    return PRACTICUM_TOKEN and TELEGRAM_TOKEN and TELEGRAM_CHAT_ID
 
 
 def main():

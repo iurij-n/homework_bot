@@ -8,11 +8,18 @@ import requests
 from dotenv import load_dotenv
 from telegram import Bot
 
+from exceptions import (GetAPIAnswerError,
+                        EmptyDictError,
+                        KeyHomeworksError,
+                        TypeDictError,
+                        HomeworkTypeError)
+
 load_dotenv()
 
 PRACTICUM_TOKEN = os.getenv('PRACTICUM_TOKEN')
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
+
 
 ENDPOINT = 'https://practicum.yandex.ru/api/user_api/homework_statuses/'
 HEADERS = {'Authorization': f'OAuth {PRACTICUM_TOKEN}'}
@@ -44,68 +51,61 @@ def get_api_answer(current_timestamp):
     """Запрос к API-сервиса проверки домашней работы."""
     timestamp = current_timestamp or int(time.time())
     params = {'from_date': timestamp}
-    try:
-        homework = requests.get(ENDPOINT, headers=HEADERS, params=params)
-        logger.debug(f'Код ответа API: {homework.status_code}')
-    #logger.debug(f'Тип кода ответа API: {type(homework.status_code)}')
-        if homework.status_code != 200:
-            logger.error(f'Сбой в работе программы. '
-                        f'Код ответа API: {homework.status_code}')
-            return False 
-        else:
-            logger.debug(f'get_api_answer вернула {homework.json()}')
-            return homework.json()
-    except Exception:
-        logger.error(f'Сбой в работе программы. '
-                        f'Код ответа API: {homework.status_code}')
-        return False
+    homework = requests.get(ENDPOINT, headers=HEADERS, params=params)
+    if homework.status_code == 200:
+        return homework.json()
+    else:
+        raise GetAPIAnswerError
 
 
 def check_response(response) -> list:
     """Возвращает список домашних работ."""
-    if isinstance(response, dict):
-        logger.debug('Получен список домашних работ')
-        try:
-            hw_list = response.get('homeworks')
-            logger.debug('Список домашних работ извлечен успешно')
-            return hw_list
-        except Exception:
-            logger.error('Не удалось извлечь список домашних работ')
+    if len(response) == 0:
+        logger.error('API вернул пустой словарь')
+        raise EmptyDictError
+
+    try:
+        hw_list = response['homeworks']
+    except KeyError:
+        logger.error('Не удалось извлечь список домашних работ.')
+        raise KeyHomeworksError
+    if hw_list is not None and type(hw_list) == list:
+        return hw_list
     else:
-        logger.error(f'Тип данных ответа API {type(response)}. '
-                     'Должен быть словарь.')
-        return []
+        logger.error('Неверный тип списка домашних заданий')
+        raise TypeDictError
 
 
 def parse_status(homework):
     """Статус проверки домашней работы."""
-    homework_name = homework.get('lesson_name')
-    if homework_name is None:
-        logger.error('Не удалось извлечь название домашней работы')
-        homework_name = 'Неизвестная домашняя работа'
-    
-    homework_status = homework.get('status')
-    if homework_status is None:
-        logger.error('Неизвесный статус домашней работы')
-    else:
-        verdict = HOMEWORK_STATUSES.get(homework_status)
-        return f'Изменился статус проверки работы "{homework_name}". {verdict}'
+    if type(homework) != dict:
+        raise HomeworkTypeError
+    try:
+        homework_name = homework['homework_name']
+    except Exception:
+        raise KeyError
+    try:
+        homework_status = homework['status']
+    except Exception:
+        raise KeyError
+    try:
+        verdict = HOMEWORK_STATUSES[homework_status]
+    except Exception:
+        raise KeyError
+    return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
 
 def check_tokens():
     """Проверка доступности переменных окружения."""
+    error_message = ('Отсутствует обязательная переменная окружения: '
+                        '{item} Программа принудительно '
+                        'остановлена.')
     if PRACTICUM_TOKEN is None:
-        logger.critical('Отсутствует обязательная переменная окружения: '
-                        'PRACTICUM_TOKEN Программа принудительно '
-                        'остановлена.')
+        logger.critical(error_message.format(item='PRACTICUM_TOKEN'))
     if TELEGRAM_TOKEN is None:
-        logger.critical('Отсутствует обязательная переменная окружения: '
-                        'TELEGRAM_TOKEN Программа принудительно '
-                        'остановлена.')
+        logger.critical(error_message.format(item='TELEGRAM_TOKEN'))
     if TELEGRAM_CHAT_ID is None:
-        logger.critical('Отсутствует обязательная переменная окружения: '
-                        'TELEGRAM_CHAT_ID Программа принудительно '
-                        'остановлена.')
+        logger.critical(error_message.format(item='TELEGRAM_CHAT_ID'))
     return PRACTICUM_TOKEN and TELEGRAM_TOKEN and TELEGRAM_CHAT_ID
 
 
@@ -113,23 +113,36 @@ def main():
     """Основная логика работы бота."""
     bot = Bot(token=TELEGRAM_TOKEN)
     current_timestamp = int(time.time())
+    get_api_answer_err = ''
+    check_response_err = ''
+    ex_err = ''
     while check_tokens():
         try:
             try:
                 response = get_api_answer(current_timestamp)
-            except Exception:
-                logger.error('Не удалось получить ответ API')
-                send_message(bot, 'Не удалось получить ответ API')
+            except Exception as error:
+                message = ('Не удалось получить ответ API. '
+                             f'Ошибка: {error.__doc__}')
+                logger.error(message)
+                if get_api_answer_err != error.__doc__:
+                    send_message(bot, message)
+                    get_api_answer_err = error.__doc__
             logger.debug(f'Ответ API {response}')
             try:
-                homework = check_response(response)
-            except Exception:
-                logger.error('Не удалось распознать ответ API')
-                send_message(bot, 'Не удалось распознать ответ API')
+                if response:
+                    homework = check_response(response)
+            except Exception as error:
+                message = ('Не удалось распознать ответ API. '
+                             f'Ошибка: {error.__doc__}')
+                logger.error(message)
+                if check_response_err != error.__doc__:
+                    send_message(bot, message)
+                    check_response_err = error.__doc__
             logger.debug(f'Список домашних работ {homework}')
             if len(homework) != 0:
-                send_message(bot, parse_status(homework[0]))
-                logger.debug('Получен новый статус')
+                for hw in homework[::-1]:
+                    send_message(bot, parse_status(hw))
+                    logger.debug('Получен новый статус')
             else:
                 logger.debug('Новых статусов нет')
 
@@ -137,8 +150,12 @@ def main():
             time.sleep(RETRY_TIME)
 
         except Exception as error:
-            message = f'Сбой в работе программы: {error}'
-            send_message(bot, message)
+            message = ('Не удалось распознать ответ API. '
+                       f'Ошибка: {error.__doc__}')
+            logger.error(message)
+            if ex_err != error.__doc__:
+                send_message(bot, message)
+                ex_err = error.__doc__
             time.sleep(RETRY_TIME)
     else:
         message = 'Переменные окружения не доступны'

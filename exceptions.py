@@ -27,7 +27,7 @@ class KeyHomeworksError(Exception):
 
     pass
 
-##################
+
 class TypeDictError(Exception):
     """Неверный тип словаря."""
 

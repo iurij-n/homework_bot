@@ -34,7 +34,8 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 handler = logging.StreamHandler(sys.stdout)
 logger.addHandler(handler)
-formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - '
+                              '%(funcName)s - line: %(lineno)d - %(message)s')
 handler.setFormatter(formatter)
 
 
@@ -98,8 +99,8 @@ def parse_status(homework):
 def check_tokens():
     """Проверка доступности переменных окружения."""
     error_message = ('Отсутствует обязательная переменная окружения: '
-                        '{item} Программа принудительно '
-                        'остановлена.')
+                     '{item} Программа принудительно '
+                     'остановлена.')
     if PRACTICUM_TOKEN is None:
         logger.critical(error_message.format(item='PRACTICUM_TOKEN'))
     if TELEGRAM_TOKEN is None:
@@ -115,51 +116,47 @@ def main():
     current_timestamp = int(time.time())
     get_api_answer_err = ''
     check_response_err = ''
-    ex_err = ''
-    while check_tokens():
+    if not check_tokens():
+        message = 'Нет доступа к переменным окружения. Аварийная остановка.'
+        logger.critical(message)
+        raise SystemExit(0)
+    while True:
         try:
-            try:
-                response = get_api_answer(current_timestamp)
-            except Exception as error:
-                message = ('Не удалось получить ответ API. '
-                             f'Ошибка: {error.__doc__}')
-                logger.error(message)
-                if get_api_answer_err != error.__doc__:
-                    send_message(bot, message)
-                    get_api_answer_err = error.__doc__
-            logger.debug(f'Ответ API {response}')
-            try:
-                if response:
-                    homework = check_response(response)
-            except Exception as error:
-                message = ('Не удалось распознать ответ API. '
-                             f'Ошибка: {error.__doc__}')
-                logger.error(message)
-                if check_response_err != error.__doc__:
-                    send_message(bot, message)
-                    check_response_err = error.__doc__
-            logger.debug(f'Список домашних работ {homework}')
-            if len(homework) != 0:
-                for hw in homework[::-1]:
-                    send_message(bot, parse_status(hw))
-                    logger.debug('Получен новый статус')
-            else:
-                logger.debug('Новых статусов нет')
-
-            current_timestamp = int(time.time())
+            response = get_api_answer(current_timestamp)
+            homework = check_response(response)
+        except GetAPIAnswerError as error:
+            message = ('Не удалось получить ответ API. '
+                       f'Ошибка: {error.__doc__}')
+            logger.error(message)
+            if get_api_answer_err != error.__doc__:
+                send_message(bot, message)
+                get_api_answer_err = error.__doc__
             time.sleep(RETRY_TIME)
-
-        except Exception as error:
+            continue
+        except (EmptyDictError, KeyHomeworksError, TypeDictError) as error:
             message = ('Не удалось распознать ответ API. '
                        f'Ошибка: {error.__doc__}')
             logger.error(message)
-            if ex_err != error.__doc__:
+            if check_response_err != error.__doc__:
                 send_message(bot, message)
-                ex_err = error.__doc__
+                check_response_err = error.__doc__
             time.sleep(RETRY_TIME)
-    else:
-        message = 'Переменные окружения не доступны'
-        send_message(bot, message)
+            continue
+        else:
+            get_api_answer_err = ''
+            check_response_err = ''
+            logger.debug(f'Ответ API {response}')
+            logger.debug(f'Список домашних работ {homework}')
+
+        if len(homework) != 0:
+            for hw in homework[::-1]:
+                send_message(bot, parse_status(hw))
+                logger.debug('Получен новый статус')
+        else:
+            logger.debug('Новых статусов нет')
+
+        current_timestamp = int(time.time())
+        time.sleep(RETRY_TIME)
 
 
 if __name__ == '__main__':

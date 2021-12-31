@@ -30,8 +30,8 @@ HOMEWORK_STATUSES = {
     'rejected': 'Работа проверена: у ревьюера есть замечания.'
 }
 ERROR_MESSAGE = ('Отсутствует обязательная переменная окружения: '
-                     '{item} Программа принудительно '
-                     'остановлена.')
+                 '{item} Программа принудительно '
+                 'остановлена.')
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -61,7 +61,7 @@ def get_api_answer(current_timestamp):
     try:
         logger.debug('Попытка получить данные API')
         homework = requests.get(ENDPOINT, headers=HEADERS, params=params)
-    except:
+    except Exception:
         logger.error('Не удалось получить ответ API')
         raise GetAPIAnswerError('Не удалось получить ответ API')
     else:
@@ -100,9 +100,8 @@ def check_response(response) -> list:
     if hw_list is None or type(hw_list) != list:
         logger.error('Неверный тип списка домашних заданий')
         raise TypeDictError
-    
+
     return hw_list
-        
 
 
 def parse_status(homework):
@@ -151,10 +150,8 @@ def main():
     while True:
         try:
             response = get_api_answer(current_timestamp)
-            print('response: ', response)
             homework = check_response(response)
-            current_timestamp = response['current_date']
-            print('current_timestamp = ', current_timestamp, 'type - ', type(current_timestamp))
+            # current_timestamp = response['current_date']
         except GetAPIAnswerError as error:
             message = ('Не удалось получить ответ API. '
                        f'Ошибка: {error.__doc__}')
@@ -173,25 +170,28 @@ def main():
                 check_response_err = error.__doc__
             time.sleep(RETRY_TIME)
             continue
-        except KeyError as error:
-            logger.error('Не удалось получить время запроса. '
-                         f'Ошибка: {error.__doc__}')
-            current_timestamp = int(time.time())
-            time.sleep(RETRY_TIME)
-            continue
+        # except KeyError as error:
+        #     logger.error('Не удалось получить время запроса. '
+        #                  f'Ошибка: {error.__doc__}')
+        #     current_timestamp = int(time.time())
+        #     time.sleep(RETRY_TIME)
+        #     continue
         else:
             get_api_answer_err = ''
             check_response_err = ''
             logger.debug(f'Ответ API {response}')
             logger.debug(f'Список домашних работ {homework}')
 
-        if len(homework) != 0:
-            for hw in homework[::-1]:
-                send_message(bot, parse_status(hw))
-                logger.debug('Получен новый статус')
-        else:
+        if len(homework) == 0:
             logger.debug('Новых статусов нет')
+            time.sleep(RETRY_TIME)
+            continue
 
+        for hw in homework[::-1]:
+            send_message(bot, parse_status(hw))
+            logger.debug('Получен новый статус')
+
+        current_timestamp = int(time.time())
         time.sleep(RETRY_TIME)
 
 

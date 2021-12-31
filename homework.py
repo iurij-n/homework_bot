@@ -29,6 +29,9 @@ HOMEWORK_STATUSES = {
     'reviewing': 'Работа взята на проверку ревьюером.',
     'rejected': 'Работа проверена: у ревьюера есть замечания.'
 }
+ERROR_MESSAGE = ('Отсутствует обязательная переменная окружения: '
+                     '{item} Программа принудительно '
+                     'остановлена.')
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -50,13 +53,38 @@ def send_message(bot, message):
 
 def get_api_answer(current_timestamp):
     """Запрос к API-сервиса проверки домашней работы."""
+    # if type(current_timestamp) == int:
+    #     timestamp = current_timestamp
+    # else:
+    #     timestamp = int(time.time())
     timestamp = current_timestamp or int(time.time())
     params = {'from_date': timestamp}
-    homework = requests.get(ENDPOINT, headers=HEADERS, params=params)
-    if homework.status_code == 200:
-        return homework.json()
+    try:
+        logger.debug('Попытка получить данные API')
+        homework = requests.get(ENDPOINT, headers=HEADERS, params=params)
+    except:
+        logger.error('Не удалось получить ответ API')
+        raise GetAPIAnswerError('Не удалось получить ответ API')
     else:
-        raise GetAPIAnswerError
+        logger.debug('Данные API получены')
+    if homework.status_code == 200:
+        api_answer = homework.json()
+        print('type api_answer: ', type(api_answer))
+        api_answer_error = None
+        api_answer_code = None
+        if type(api_answer) == dict:
+            api_answer_error = api_answer.get('error')
+            api_answer_code = api_answer.get('code')
+        if api_answer_error:
+            logger.error(f'Ошибка API: {api_answer_error}')
+            raise GetAPIAnswerError(api_answer_error)
+        if api_answer_code:
+            logger.error(f'Ошибка API: {api_answer_code}')
+            raise GetAPIAnswerError(api_answer_code)
+        return api_answer
+    else:
+        logger.error('Неверный статус API')
+        raise GetAPIAnswerError('Неверный статус API')
 
 
 def check_response(response) -> list:
@@ -70,11 +98,13 @@ def check_response(response) -> list:
     except KeyError:
         logger.error('Не удалось извлечь список домашних работ.')
         raise KeyHomeworksError
-    if hw_list is not None and type(hw_list) == list:
-        return hw_list
-    else:
+
+    if hw_list is None or type(hw_list) != list:
         logger.error('Неверный тип списка домашних заданий')
         raise TypeDictError
+    
+    return hw_list
+        
 
 
 def parse_status(homework):
@@ -92,21 +122,21 @@ def parse_status(homework):
     try:
         verdict = HOMEWORK_STATUSES[homework_status]
     except Exception:
-        raise KeyError
+        logger.error('Неизвестный статус домашней работы - '
+                     f'{homework_status}')
+        raise KeyError('Неизвестный статус домашней работы - '
+                       f'{homework_status}')
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
 
 def check_tokens():
     """Проверка доступности переменных окружения."""
-    error_message = ('Отсутствует обязательная переменная окружения: '
-                     '{item} Программа принудительно '
-                     'остановлена.')
     if PRACTICUM_TOKEN is None:
-        logger.critical(error_message.format(item='PRACTICUM_TOKEN'))
+        logger.critical(ERROR_MESSAGE.format(item='PRACTICUM_TOKEN'))
     if TELEGRAM_TOKEN is None:
-        logger.critical(error_message.format(item='TELEGRAM_TOKEN'))
+        logger.critical(ERROR_MESSAGE.format(item='TELEGRAM_TOKEN'))
     if TELEGRAM_CHAT_ID is None:
-        logger.critical(error_message.format(item='TELEGRAM_CHAT_ID'))
+        logger.critical(ERROR_MESSAGE.format(item='TELEGRAM_CHAT_ID'))
     return PRACTICUM_TOKEN and TELEGRAM_TOKEN and TELEGRAM_CHAT_ID
 
 
@@ -123,7 +153,10 @@ def main():
     while True:
         try:
             response = get_api_answer(current_timestamp)
+            print('response: ', response)
             homework = check_response(response)
+            current_timestamp = response['current_date']
+            print('current_timestamp = ', current_timestamp, 'type - ', type(current_timestamp))
         except GetAPIAnswerError as error:
             message = ('Не удалось получить ответ API. '
                        f'Ошибка: {error.__doc__}')
@@ -142,6 +175,12 @@ def main():
                 check_response_err = error.__doc__
             time.sleep(RETRY_TIME)
             continue
+        except KeyError as error:
+            logger.error('Не удалось получить время запроса. '
+                         f'Ошибка: {error.__doc__}')
+            current_timestamp = int(time.time())
+            time.sleep(RETRY_TIME)
+            continue
         else:
             get_api_answer_err = ''
             check_response_err = ''
@@ -155,7 +194,6 @@ def main():
         else:
             logger.debug('Новых статусов нет')
 
-        current_timestamp = int(time.time())
         time.sleep(RETRY_TIME)
 
 

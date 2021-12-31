@@ -53,11 +53,10 @@ def send_message(bot, message):
 
 def get_api_answer(current_timestamp):
     """Запрос к API-сервиса проверки домашней работы."""
-    # if type(current_timestamp) == int:
-    #     timestamp = current_timestamp
-    # else:
-    #     timestamp = int(time.time())
-    timestamp = current_timestamp or int(time.time())
+    if type(current_timestamp) == float:
+        timestamp = current_timestamp
+    else:
+        timestamp = int(time.time())
     params = {'from_date': timestamp}
     try:
         logger.debug('Попытка получить данные API')
@@ -69,7 +68,6 @@ def get_api_answer(current_timestamp):
         logger.debug('Данные API получены')
     if homework.status_code == 200:
         api_answer = homework.json()
-        print('type api_answer: ', type(api_answer))
         api_answer_error = None
         api_answer_code = None
         if type(api_answer) == dict:

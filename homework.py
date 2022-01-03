@@ -12,7 +12,8 @@ from exceptions import (GetAPIAnswerError,
                         EmptyDictError,
                         KeyHomeworksError,
                         TypeDictError,
-                        HomeworkTypeError)
+                        HomeworkTypeError,
+                        TimestampError)
 
 load_dotenv()
 
@@ -137,6 +138,19 @@ def check_tokens():
     return PRACTICUM_TOKEN and TELEGRAM_TOKEN and TELEGRAM_CHAT_ID
 
 
+def get_timestamp(response):
+    """Время предыдущей проверки статуса."""
+    try:
+        ts = response['current_date']
+        if type(ts) == float:
+            current_timestamp = ts
+        else:
+            logger.error(f'Неверный формат временной метки - {ts}')
+    except TimestampError as error:
+        logger.error(error.__doc__)
+    return current_timestamp
+
+
 def main():
     """Основная логика работы бота."""
     bot = Bot(token=TELEGRAM_TOKEN)
@@ -191,7 +205,7 @@ def main():
             send_message(bot, parse_status(hw))
             logger.debug('Получен новый статус')
 
-        current_timestamp = int(time.time())
+        current_timestamp = get_timestamp(response) or int(time.time())
         time.sleep(RETRY_TIME)
 
 

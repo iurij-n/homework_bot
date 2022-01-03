@@ -34,19 +34,13 @@ class TypeDictError(Exception):
     pass
 
 
+class TimestampError(Exception):
+    """Не удалось получить временную метку."""
+
+    pass
+
+
 class HomeworkTypeError(Exception):
     """Элемент списка не словарь."""
-
-    pass
-
-
-class KeyHomeworksError(Exception):
-    """В словаре нет ключа homeworks."""
-
-    pass
-
-
-class KeyHomeworksError(Exception):
-    """В словаре нет ключа homeworks."""
 
     pass

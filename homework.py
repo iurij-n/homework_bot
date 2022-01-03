@@ -91,7 +91,6 @@ def check_response(response) -> list:
     if len(response) == 0:
         logger.error('API вернул пустой словарь')
         raise EmptyDictError
-
     try:
         hw_list = response['homeworks']
     except KeyError:
@@ -165,7 +164,6 @@ def main():
         try:
             response = get_api_answer(current_timestamp)
             homework = check_response(response)
-            # current_timestamp = response['current_date']
         except GetAPIAnswerError as error:
             message = ('Не удалось получить ответ API. '
                        f'Ошибка: {error.__doc__}')
@@ -184,12 +182,6 @@ def main():
                 check_response_err = error.__doc__
             time.sleep(RETRY_TIME)
             continue
-        # except KeyError as error:
-        #     logger.error('Не удалось получить время запроса. '
-        #                  f'Ошибка: {error.__doc__}')
-        #     current_timestamp = int(time.time())
-        #     time.sleep(RETRY_TIME)
-        #     continue
         else:
             get_api_answer_err = ''
             check_response_err = ''
